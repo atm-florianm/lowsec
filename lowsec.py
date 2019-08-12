@@ -15,6 +15,7 @@ import os, sys
 import re
 import time
 import random
+from typing import Generator, BinaryIO
 from hashlib import sha256
 from functools import partial
 
@@ -23,28 +24,33 @@ BYTESIZE=BITSIZE>>3
 MAX = 2**BITSIZE
 ENDIAN = 'little'
 
-def i2b(n):
+def i2b(n: int) -> bytes:
     '''
+    @param int n
     Convert an int to a bytes object of size BYTESIZE,
     endianness ENDIAN
     '''
     return int.to_bytes(n, BYTESIZE, ENDIAN)
 
-def b2i(b):
+def b2i(b: bytes) -> int:
     '''
+    @param bytes b
     Convert a bytes object to an int using endianness
     ENDIAN
     '''
     return int.from_bytes(b, ENDIAN)
 
-def pwd2key(pwd):
+def pwd2key(pwd: str) -> bytes:
     '''
+    @param string pwd
+    @return bytes
     Convert a unicode password into a bytes object that can
-    be used as a key
+    be used as a key. Currently it simply makes a bytes object
+    from the unicode password.
     '''
     return pwd.encode('utf-8')
 
-def rndstream(key, IV):
+def rndstream(key: bytes, IV: int):
     '''
     Returns a generator for a pseudorandom stream determined
     by the key + initialization vector
@@ -56,64 +62,52 @@ def rndstream(key, IV):
         if key: hash.update(key)
         yield hash.digest()
 
-
-def enc(key, txt):
+def xor_stream(stream_gen: Generator, txt: bytes):
     '''
-    Encrypts txt using the provided key (a bytes object).
+    Generic function for encrypting and decrypting.
+    It only XORs txt with the bits from stream_gen.
     '''
     ret = b''
-    IV = random.randint(0, MAX-1)
-    stream = rndstream(key, IV)
     while len(txt) >= BYTESIZE:
         block, txt = txt[0:BYTESIZE], txt[BYTESIZE:]
-        encblock = i2b(b2i(block) ^ b2i(next(stream)))
+        encblock = i2b(b2i(block) ^ b2i(next(stream_gen)))
         ret += encblock
     if len(txt):
         block = txt
-        encblock = i2b(b2i(block) ^ b2i(next(stream)))[0:len(block)]
-        ret += encblock
-    return i2b(IV) + ret
-
-def dec(key, txt):
-    '''
-    Decrypts txt (a text encrypted using enc).
-    '''
-    ret = b''
-    IV, txt = b2i(txt[0:BYTESIZE]), txt[BYTESIZE:]
-    stream = rndstream(key, IV)
-    while len(txt) >= BYTESIZE:
-        block, txt = txt[0:BYTESIZE], txt[BYTESIZE:]
-        encblock = i2b(b2i(block) ^ b2i(next(stream)))
-        ret += encblock
-    if len(txt):
-        block = txt
-        encblock = i2b(b2i(block) ^ b2i(next(stream)))[0:len(block)]
+        encblock = i2b(b2i(block) ^ b2i(next(stream_gen)))[0:len(block)]
         ret += encblock
     return ret
+    
 
-def stream_process(key,
-        processor,
-        f_in=sys.stdin.buffer,
-        f_out=sys.stdout.buffer):
+def stream_process(key: bytes,
+        mode: str,
+        f_in: BinaryIO=sys.stdin.buffer,
+        f_out: BinaryIO=sys.stdout.buffer):
     '''
     Runs the input file/stream through processor and writes it to the output 
     file / stream.
     '''
-    f_out.write(processor(key, f_in.read()))
+    if mode == 'enc':
+        IV = random.randint(0, MAX - 1)
+        f_out.write(i2b(IV))
+    elif mode == 'dec':
+        IV = b2i(f_in.read(BYTESIZE))
+    stream_gen = rndstream(key, IV)
+    in_chunk = f_in.read(BYTESIZE)
+    while len(in_chunk) == BYTESIZE:
+        f_out.write(xor_stream(stream_gen, in_chunk))
+        in_chunk = f_in.read(BYTESIZE)
+    if (in_chunk):
+        f_out.write(xor_stream(stream_gen, in_chunk))
 
-stream_encrypt = partial(stream_process, enc)
-stream_decrypt = partial(stream_process, dec)
+stream_encrypt = partial(stream_process, 'enc')
+stream_decrypt = partial(stream_process, 'dec')
 
 def main():
-    processors = {
-            'enc': enc,
-            'dec': dec
-            }
     try:
-        action = sys.argv[1]
+        mode = sys.argv[1]
         key = pwd2key(sys.argv[2])
-        processor = processors[action]
-        stream_process(key, processor)
+        stream_process(key, mode)
     except IndexError:
         print('USAGE: cat FILE | lowsec1.py encode > ENCRYPTED_FILE')
         print('USAGE: cat ENCRYPTEDFILE | lowsec1.py decode > FILE')
