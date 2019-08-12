@@ -5,7 +5,9 @@ Florian Mortgat, 2019
 
 Why is this low sec?
 * use of sha256 as a pseudo-random number generator: this algorithm is not ideal
-  for this.
+  for this. This can be changed to blake2s256 for more secure (but still not very
+  secure) results. Encryption will be faster.
+  For more insecure result, you can use md5.
 * use of python’s random module for generating an initialization vector (IV)
 
 '''
@@ -16,11 +18,14 @@ import re
 import time
 import random
 from typing import Generator, BinaryIO
-from hashlib import sha256
+import hashlib
 from functools import partial
 
-BITSIZE=256
-BYTESIZE=BITSIZE>>3
+#ALGORITHM='blake2s256'
+#ALGORITHM='md5'
+ALGORITHM='sha256'
+BYTESIZE=hashlib.new(ALGORITHM).digest_size
+BITSIZE=BYTESIZE<<3
 MAX = 2**BITSIZE
 ENDIAN = 'little'
 
@@ -55,7 +60,7 @@ def rndstream(key: bytes, IV: int):
     Returns a generator for a pseudorandom stream determined
     by the key + initialization vector
     '''
-    hash = sha256()
+    hash = hashlib.new(ALGORITHM)
     while True:
         IV = (IV + 1) % MAX
         hash.update(i2b(IV))
@@ -99,9 +104,6 @@ def stream_process(key: bytes,
         in_chunk = f_in.read(BYTESIZE)
     if (in_chunk):
         f_out.write(xor_stream(stream_gen, in_chunk))
-
-stream_encrypt = partial(stream_process, 'enc')
-stream_decrypt = partial(stream_process, 'dec')
 
 def main():
     try:
