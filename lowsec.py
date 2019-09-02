@@ -111,7 +111,8 @@ def main():
         key = pwd2key(sys.argv[2])
         stream_process(key, mode)
     except IndexError:
-        print('USAGE: cat FILE | lowsec1.py encode > ENCRYPTED_FILE')
-        print('USAGE: cat ENCRYPTEDFILE | lowsec1.py decode > FILE')
+        print('USAGE: cat FILE | /path/to/lowsec.py enc PASSWORD > ENCRYPTED_FILE')
+        print('USAGE: cat ENCRYPTEDFILE | /path/to/lowsec.py dec PASSWORD > FILE')
+        print('To avoid logging the password to your bash history, use:\n  read -s mypassword')
 
 if __name__ == '__main__': main()
